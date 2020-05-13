@@ -6,7 +6,8 @@ import pyulog
 import math
 import pygame
 import sys
-
+import os
+import json
 
 
 class video_telemetry(object):
@@ -52,8 +53,12 @@ class video_telemetry(object):
     def start(self):
         print("\n Start")
         GREEN = (0, 255, 0)
+        BLUE = (20, 20, 255)
+        RED = (255, 20, 20)
         cap = cv2.VideoCapture(self.video_file)
+        print("Video", cap)
         self.fps = cap.get(cv2.CAP_PROP_FPS)
+        self.fps = 50
         print("FPS:", self.fps)
         print("Skip frames:", self.video_skip/1000*self.fps)
         cap.set(cv2.CAP_PROP_POS_FRAMES, self.video_skip/1000*self.fps)
@@ -92,6 +97,49 @@ class video_telemetry(object):
         pygame.draw.line(hud_background, GREEN, [860, 540], [1060, 540], 1)
         pygame.draw.line(hud_background, GREEN, [960, 440], [960, 640], 1)
 
+
+        ## Zaklad pro Airspeed a throttle
+        speed_bottom = 750
+
+        text = basic_font.render("Gspd", True, RED)
+        hud_background.blit(text, (1245, speed_bottom - 455 - 40))
+
+        text = basic_font.render("Aspd", True, BLUE)
+        hud_background.blit(text, (1245, speed_bottom - 455 - 20))
+        pygame.draw.line(hud_background, GREEN, [1300, speed_bottom - 450], [1300, speed_bottom], 1)
+        for speed in range(0, 6):
+            text = basic_font.render("{}".format(speed*5), True, (0, 255, 0))
+            hud_background.blit(text, (1270, speed_bottom - (450/5*speed) - 5))
+
+
+        text = basic_font.render("Thr", True, BLUE)
+        hud_background.blit(text, (1305, speed_bottom - 455 - 20))
+
+        text = basic_font.render("{} %".format(100), True, (0, 255, 0))
+        hud_background.blit(text, (1305, speed_bottom - 455))
+
+        text = basic_font.render("{} %".format(50), True, (0, 255, 0))
+        hud_background.blit(text, (1305, speed_bottom - 455/2))
+
+        text = basic_font.render("{} %".format(0), True, (0, 255, 0))
+        hud_background.blit(text, (1305, speed_bottom))
+
+        alt_bottom = 750
+        text = basic_font.render("Alt", True, BLUE)
+        hud_background.blit(text, (600, alt_bottom - 455 - 20))
+        pygame.draw.line(hud_background, GREEN, [600, speed_bottom - 450], [600, speed_bottom], 1)
+        for alt in range(0, 11, 2):
+            text = basic_font.render("{}".format(alt*10), True, GREEN)
+            hud_background.blit(text, (610, alt_bottom - (450/10*alt) - 5))
+
+
+        text = basic_font.render("RPM", True, BLUE)
+        hud_background.blit(text, (545, alt_bottom - 455 - 20))
+        #pygame.draw.line(hud_background, GREEN, [600, speed_bottom - 450], [600, speed_bottom], 1)
+        for RPM in range(0, 11, 2):
+            text = basic_font.render("{}".format(RPM*100), True, GREEN)
+            hud_background.blit(text, (555, alt_bottom - (450/10*RPM) - 5))
+
         running = True
         while(cap.isOpened() and running):
             ret, frame = cap.read()
@@ -106,19 +154,19 @@ class video_telemetry(object):
                 cv2.putText(self.img,'V: {:.2f} s, L: {:.2f} s'.format(videotime/1000, time/1000),(10,60), font, 1,(255,255,255), 1, cv2.LINE_AA)
 
 
-                spd = self.get_value("airspeed", time)
-                self.draw_range((820, 30), spd.true_airspeed_m_s, min = 0, max=30, label = "TAS", value_text="ms")
+                aspd = self.get_value("airspeed", time)
+                self.draw_range((820, 30), aspd.true_airspeed_m_s, min = 0, max=30, label = "TAS", value_text="ms")
 
-                data = self.get_value("vehicle_gps_position", time)
-                self.draw_range((890, 30), data.vel_m_s, min = 0, max=30, label = "GSpd", value_text="ms")
+                gps = self.get_value("vehicle_gps_position", time)
+                self.draw_range((890, 30), gps.vel_m_s, min = 0, max=30, label = "GSpd", value_text="ms")
 
 
                 data = self.get_value("manual_control_setpoint", time)
                 self.draw_RC(data)
 
-                data = self.get_value('vehicle_air_data', time)
+                air_data = self.get_value('vehicle_air_data', time)
                 #self.draw_range((300, 100), data['baro_alt_meter'], min = basealt, max = basealt+100, label = 'Alt', value_text = "m")
-                self.draw_range((750, 30), data['baro_alt_meter']-basealt, min = 0, max = 100, label = 'rAlt', value_text = "m")
+                self.draw_range((750, 30), air_data['baro_alt_meter']-basealt, min = 0, max = 100, label = 'rAlt', value_text = "m")
 
                 # Baterie ..
                 spd = self.get_value("battery_status", time)
@@ -140,7 +188,12 @@ class video_telemetry(object):
                 self.draw_range((1000, 30), pitch,data_sp['pitch_body']*57.2957, min = -45, max = 45, label = 'pitch', value_text = "d")
                 self.draw_range((1160, 30), yaw, min = -180, max = 180, label = 'yaw', value_text = "d")
 
-                self.draw_inclinometer((100, 300), (roll, pitch, yaw), (data_sp['roll_body']*57.2957, data_sp['pitch_body']*57.2957, data_sp['yaw_body']*57.2957))
+                actuator_controls = self.get_value("actuator_controls_0", time)
+                actu_roll = int(actuator_controls['control[0]']*90)
+                actu_pitch = int(actuator_controls['control[1]']*90)
+                actu_yaw = int(actuator_controls['control[2]']*90)
+
+                self.draw_inclinometer((100, 300), (actu_roll, actu_pitch, actu_yaw))
 
                 self.pimg = pygame.image.frombuffer(cv2.cvtColor(self.img, cv2.COLOR_BGR2RGB).tostring(), self.img.shape[1::-1], "RGB")
 
@@ -184,16 +237,35 @@ class video_telemetry(object):
                 (w, h) = hud.get_size()
                 self.pimg.blit(hud, (960-w/2, 400-h/2))
 
+
+                ## Airspeed and throttle
+                pos = aspd.true_airspeed_m_s/35*450
+                pygame.draw.line(self.pimg, BLUE, [1270,int(speed_bottom - pos)],[1300, int(speed_bottom - pos)], 3)
+                pos =  gps.vel_m_s/35*450
+                pygame.draw.line(self.pimg, RED, [1270,int(speed_bottom - pos)],[1300, int(speed_bottom - pos)], 3)
+                pygame.draw.line(self.pimg, BLUE, [1300,int(speed_bottom - actuator_controls['control[3]']*450)],[1330, int(speed_bottom - actuator_controls['control[3]']*450)], 3)
+
+                pos = ((air_data['baro_alt_meter']-basealt)/100)*450
+                pygame.draw.line(self.pimg, BLUE, [600,int(speed_bottom - pos)],[630, int(speed_bottom - pos)], 3)
+
+
+                # RPM
+
+                rpm_data = self.get_value('rotor_frequency', time)
+                pos = ((rpm_data['indicated_frequency_rpm']/2)/1000)*450
+                pygame.draw.line(self.pimg, BLUE, [570,int(speed_bottom - pos)],[600, int(speed_bottom - pos)], 3)
+
                 view = pygame.surfarray.array3d(self.pimg)
                 view = view.transpose([1, 0, 2])
                 self.img = cv2.cvtColor(view, cv2.COLOR_RGB2BGR)
                 out.write(self.img)
 
+
                 #cv2.imshow('frame',self.img)
                 display_surface.blit(self.pimg, (0, 0))
 
                 for event in pygame.event.get():
-                    if event.type == pygame.QUIT or event.type == pygame.KEYDOWN:
+                    if event.type == pygame.QUIT:
                         running = False
 
                 pygame.display.update()
@@ -260,6 +332,10 @@ class video_telemetry(object):
         cv2.circle(self.img, (int(p1[0]+70 +45*manual_control.r), int(p1[1]+50-45*(manual_control.z-0.5)*2)), 5, (0, 0, 0), -1)
         cv2.circle(self.img, (int(p1[0]+165+45*manual_control.y), int(p1[1]+50-45*manual_control.x)), 5, (0, 0, 0), -1)
 
+        val = int(95*(manual_control.aux1/2+0.5))
+        if val < 1: val = 1
+        cv2.rectangle(self.img, (p1[0]+5, p2[1]-5), (p1[0]+5+15, p2[1]-5- val), (50, 50, 100), -1)
+
 
     def draw_inclinometer(self, p1, estimated, setpoint = None):
         cv2.circle(self.img, (p1[0]+45, p1[1]+45), 45, (100, 100, 100), -1)
@@ -300,27 +376,53 @@ class video_telemetry(object):
 
     def load_config(self, cfg):
 
-        cfgj = {
-            "log": "2019-06-02/10_49_36.ulg",
-            "log_start": 40700,
-            "video": "Videa/C0105.MP4",
-            "video_start": 29000,
-            "video_out": "telem2.MP4"
-        }
-        url = "/home/roman/OwnCloudMLAB/TF_data/UAV/TF-G1/zkousky/Test_20190602/"
+        # cfgj = {
+        #     "log": "2019-06-02/10_49_36.ulg",
+        #     "log_start": 40700,
+        #     "video": "Videa/C0105.MP4",
+        #     "video_start": 29000,
+        #     "video_out": "telem2.MP4"
+        # }
+        # url = "/home/roman/OwnCloudMLAB/TF_data/UAV/TF-G1/zkousky/Test_20190602/"
+
+        # cfgj = {
+        #     "log": "2019-06-09/15_40_36.ulg",
+        #     "log_start": -7000,
+        #     "video": "videa/vlc-record-2019-06-09-17h40m17s-rtsp___10.42.0.66_user=admin&password=&channel=0&stream=0-.mp4",
+        #     "video_start": 13000,
+        #     "video_out": "telem_17_40.mp4"
+        # }
+        # url = "/home/roman/OwnCloudMLAB/TF_data/UAV/TF-G1/zkousky/Test_20190609/"
+
+        #
+        # cfgj = {
+        #     "log": "2019-06-15/17_06_00.ulg",
+        #     "log_start": -15300,
+        #     "video": "Videa/vlc-record-2019-06-15-19h05m49s-rtsp___10.42.0.67_user=admin&password=&channel=0&stream=0-.mp4",
+        #     "video_start": 10000,
+        #     "video_out": "telemetry2.mp4"
+        # }
+        # url = "/home/roman/OwnCloudMLAB/TF_data/UAV/TF-G1/zkousky/Test_20190615/"
+
+
+        with open(cfg) as file:
+            cfgj = json.load(file)[0]
+        url = os.path.dirname(os.path.abspath(cfg))+'/'
 
         self.set_video(url+cfgj['video'], cfgj['video_start'])
         self.set_log(url+cfgj['log'], cfgj['log_start'])
+        self.video_start_time = cfgj.get('video_start', 0)
+        self.log_offset =  cfgj.get('log_start', 0)
         self.load_log()
         self.out_video(url+cfgj['video_out'])
 
 if __name__ == '__main__':
-
-    print("Parametru:", len(sys.argv))
-    if True:
+    if len(sys.argv) == 1:
         print("Usage: python3 video_telemetry.py <configuration-file>")
+        sys.exit(0)
+    print("Cesta ke konfiguraku:", sys.argv[1])
 
-    cfg = ""
+    cfg = sys.argv[1]
     vt = video_telemetry()
     vt.load_config(cfg)
     vt.start()
